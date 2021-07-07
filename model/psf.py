@@ -136,10 +136,16 @@ def generate_psf(s: Settings) -> np.ndarray:
     deltatheta=effective_focusing_angle/s.Ntheta
     deltaphi=2*np.pi/s.Nphi  
 
+
+    #Initialization
+    Ex2=0                                                                               #Ex?component in focal
+    Ey2=0                                                                               #Ey?component in focal
+    Ez2=0   
+    
     theta=0
     phi=0
-    for s in range (0,s.Ntheta+1):
-        theta=s*deltatheta
+    for slice in range (0,s.Ntheta+1):
+        theta=slice*deltatheta
         for q in range(0,s.Nphi+1):
             phi=q*deltaphi        
             T=[[1+(np.cos(phi)**2)*(np.cos(theta)-1), np.sin(phi)*np.cos(phi)*(np.cos(theta)-1), -np.sin(theta)*np.cos(phi)],

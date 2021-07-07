@@ -47,22 +47,6 @@ def zernike(rho,theta, a: Aberration):
     return zer
 
 
-class Mode(str, Enum):
-    GAUSSIAN= "GAUSSIAN"
-    DONUT= "DONUT"
-    BOTTLE= "BOTTLE"
-
-
-
-class Polarization(int, Enum):
-    X_LINEAR = 1
-    Y_LINEAR = 2
-    LEFT_CIRCULAR = 3
-    RIGHT_CIRCULAR = 4
-    ELLIPTICAL = 5
-    RADIAL = 6
-    AZIMUTHAL = 7
-
 
 
 
@@ -249,12 +233,34 @@ for i in range(0,n1):                                                           
             mask_pupil_eff[i,j]=mask_pupil[i,j]
 
 #intensity of different components and total field
-
+#%%
 Ix2=np.abs(Ex2)**2
 Iy2=np.abs(Ey2)**2
 Iz2=np.abs(Ez2)**2
 I1=Ix2+Iy2+Iz2
 Ixy=Ix2+Iy2
+
+
+#%%
+I1.shape
+
+
+#%%
+import napari
+
+napari.view_image(I1)
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 #figures

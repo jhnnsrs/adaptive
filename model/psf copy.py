@@ -53,11 +53,11 @@ class Settings(BaseModel):
 
     #sampling parameters
     Lfocal=2.5e-6                                                                        # observation scale
-    Nx=200                                                                                #discretization of image plane
-    Ny=200
-    Nz=200
-    Ntheta=200
-    Nphi=200
+    Nx=50                                                                                #discretization of image plane
+    Ny=50
+    Nz=50
+    Ntheta=50
+    Nphi=50
 
 
 def zernike(rho,theta, a: Aberration):
@@ -74,6 +74,10 @@ def zernike(rho,theta, a: Aberration):
     Z11=np.sqrt(5)*(6*rho**4-6*rho**2+1)                                                                #Spherical
     zer=a.a1*Z1+a.a2*Z2+a.a3*Z3+a.a4*Z4+a.a5*Z5+a.a6*Z6+a.a7*Z7+a.a8*Z8+a.a9*Z9+a.a10*Z10+a.a11*Z11
     return zer
+
+
+
+    
 
 #phase mask function
 def phase_mask(rho: np.ndarray,theta: np.ndarray, cutoff_radius: float, mode: Mode):
@@ -136,10 +140,16 @@ def generate_psf(s: Settings) -> np.ndarray:
     deltatheta=effective_focusing_angle/s.Ntheta
     deltaphi=2*np.pi/s.Nphi  
 
+
+    #Initialization
+    Ex2=0                                                                               #Ex?component in focal
+    Ey2=0                                                                               #Ey?component in focal
+    Ez2=0   
+
     theta=0
     phi=0
-    for s in range (0,s.Ntheta+1):
-        theta=s*deltatheta
+    for slice in range (0,s.Ntheta+1):
+        theta=slice*deltatheta
         for q in range(0,s.Nphi+1):
             phi=q*deltaphi        
             T=[[1+(np.cos(phi)**2)*(np.cos(theta)-1), np.sin(phi)*np.cos(phi)*(np.cos(theta)-1), -np.sin(theta)*np.cos(phi)],
@@ -171,15 +181,16 @@ def generate_psf(s: Settings) -> np.ndarray:
 
             #numerical calculation of field distribution in focal region
 
-
+            
             term1=X2*np.cos(phi)+Y2*np.sin(phi)
             term2=np.multiply(np.sin(theta),term1)
-
             temp=np.exp(1j*wavenumber*(Z2*np.cos(theta)+term2))*deltatheta*deltaphi   # element by element
+            factored = np.sin(theta)*Ai*PM*B*np.exp(1j*W)*temp
 
-            Ex2=Ex2+np.sin(theta)*Ai*PM*B*P[0,0]*np.exp(1j*W)*temp
-            Ey2=Ey2+np.sin(theta)*Ai*PM*B*P[1,0]*np.exp(1j*W)*temp
-            Ez2=Ez2+np.sin(theta)*Ai*PM*B*P[2,0]*np.exp(1j*W)*temp
+
+            Ex2=Ex2+factored*P[0,0]
+            Ey2=Ey2+factored*P[1,0]
+            Ez2=Ez2+factored*P[2,0]
 
             
     (n1,n2)=rho_pupil.shape#effective phase mask

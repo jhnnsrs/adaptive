@@ -1,12 +1,12 @@
 from enum import Enum
 from pydantic import BaseModel
 import numpy as np
+import numba
 
-
-class Mode(str, Enum):
-    GAUSSIAN= "GAUSSIAN"
-    DONUT= "DONUT"
-    BOTTLE= "BOTTLE"
+class Mode(int, Enum):
+    GAUSSIAN= 1
+    DONUT=2
+    BOTTLE=3
 
 
 
@@ -53,14 +53,15 @@ class Settings(BaseModel):
 
     #sampling parameters
     Lfocal=2.5e-6                                                                        # observation scale
-    Nx=200                                                                                #discretization of image plane
-    Ny=200
-    Nz=200
-    Ntheta=200
-    Nphi=200
+    Nx=50                                                                                #discretization of image plane
+    Ny=50
+    Nz=50
+    Ntheta=50
+    Nphi=50
 
 
-def zernike(rho,theta, a: Aberration):
+@numba.jit(nopython=True)
+def zernike(rho: np.ndarray,theta: np.ndarray,a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11):
     Z1=1                                            
     Z2=2*rho*np.cos(theta)                                                                              #Tip
     Z3=2*rho*np.sin(theta)                                                                              #Tilt
@@ -72,23 +73,21 @@ def zernike(rho,theta, a: Aberration):
     Z9=np.sqrt(8)*(rho**3)*np.cos(3*theta)                                                              #Trefoil
     Z10=np.sqrt(8)*(rho**3)*np.sin(3*theta)                                                             #Trefoil
     Z11=np.sqrt(5)*(6*rho**4-6*rho**2+1)                                                                #Spherical
-    zer=a.a1*Z1+a.a2*Z2+a.a3*Z3+a.a4*Z4+a.a5*Z5+a.a6*Z6+a.a7*Z7+a.a8*Z8+a.a9*Z9+a.a10*Z10+a.a11*Z11
+    zer=a1*Z1+a2*Z2+a3*Z3+a4*Z4+a5*Z5+a6*Z6+a7*Z7+a8*Z8+a9*Z9+a10*Z10+a11*Z11
     return zer
 
 #phase mask function
-def phase_mask(rho: np.ndarray,theta: np.ndarray, cutoff_radius: float, mode: Mode):
-    if mode==Mode.GAUSSIAN:                          #guassian 
-        mask=1
-    elif mode==Mode.DONUT:                        #donut
-        mask=np.exp(1j*theta)
-    elif mode==Mode.BOTTLE:                        #bottleMo
-        if rho<cutoff_radius:
-            mask=np.exp(1j*np.pi)
+
+def phase_mask(rho: np.ndarray,theta: np.ndarray, cutoff_radius: float, mode: int):
+    if mode == 1:                          #guassian 
+        return np.ones(theta.shape)
+    if mode == 2:                        #donut
+        return np.exp(1j*theta)
+    if mode == 3:                        #bottleMo
+        if rho < cutoff_radius:
+            return np.exp(1j*np.pi)
         else :
-            mask=np.exp(1j*0)
-    else :
-        raise NotImplementedError("Please use a specified Mode")
-    return mask
+            return np.exp(1j*0)
 
 def generate_psf(s: Settings) -> np.ndarray:
 
@@ -126,9 +125,12 @@ def generate_psf(s: Settings) -> np.ndarray:
     mask_pupil_eff=np.zeros(rho_pupil.shape)                                          
     W_pupil=np.zeros(rho_pupil.shape)
 
+    aberrations = [s.abberation.a1,s.abberation.a2, s.abberation.a3, s.abberation.a4, s.abberation.a5, s.abberation.a6, s.abberation.a7, s.abberation.a8, s.abberation.a9, s.abberation.a10, s.abberation.a11]
+
     A_pupil[rho_pupil<=pupil_radius] = np.exp(-((np.square(X1[rho_pupil<=pupil_radius])+np.square(Y1[rho_pupil<=pupil_radius]))/s.beam_waist**2))           #Amplitude profile              
-    mask_pupil[rho_pupil<=pupil_radius]=np.angle(phase_mask(rho_pupil[rho_pupil<=pupil_radius],theta_pupil[rho_pupil<=pupil_radius],s.unit_phase_radius*pupil_radius, s.mode))                           #phase mask
-    W_pupil[rho_pupil<=pupil_radius]= np.angle(np.exp(1j*zernike(rho_pupil[rho_pupil<=pupil_radius]/pupil_radius,theta_pupil[rho_pupil<=pupil_radius],s.abberation)))                             #Wavefront
+    mask_pupil[rho_pupil<=pupil_radius]=np.angle(phase_mask(rho_pupil[rho_pupil<=pupil_radius],theta_pupil[rho_pupil<=pupil_radius],s.unit_phase_radius*pupil_radius, s.mode.value))                           #phase mask
+    #W_pupil[rho_pupil<=pupil_radius]= np.angle(np.exp(1j*zernike(rho_pupil[rho_pupil<=pupil_radius]/pupil_radius,theta_pupil[rho_pupil<=pupil_radius],*aberrations)))                             #Wavefront
+    W_pupil[rho_pupil<=pupil_radius]= np.angle(np.exp(1j*zernike(rho_pupil[rho_pupil<=pupil_radius]/pupil_radius,theta_pupil[rho_pupil<=pupil_radius],*aberrations)))                             #Wavefront
 
 
     
@@ -136,12 +138,20 @@ def generate_psf(s: Settings) -> np.ndarray:
     deltatheta=effective_focusing_angle/s.Ntheta
     deltaphi=2*np.pi/s.Nphi  
 
+
+    #Initialization
+    Ex2=0                                                                               #Ex?component in focal
+    Ey2=0                                                                               #Ey?component in focal
+    Ez2=0   
+
     theta=0
     phi=0
-    for s in range (0,s.Ntheta+1):
-        theta=s*deltatheta
+    for slice in range (0,s.Ntheta+1):
+        theta=slice*deltatheta
         for q in range(0,s.Nphi+1):
-            phi=q*deltaphi        
+            phi=q*deltaphi  
+            
+                  
             T=[[1+(np.cos(phi)**2)*(np.cos(theta)-1), np.sin(phi)*np.cos(phi)*(np.cos(theta)-1), -np.sin(theta)*np.cos(phi)],
             [np.sin(phi)*np.cos(phi)*(np.cos(theta)-1), 1+np.sin(phi)**2*(np.cos(theta)-1), -np.sin(theta)*np.sin(phi)],
             [np.sin(theta)*np.cos(phi), -np.sin(theta)*np.sin(phi), np.cos(theta)]]           # Pola matrix
@@ -165,21 +175,22 @@ def generate_psf(s: Settings) -> np.ndarray:
             #Apodization factor
             B=np.sqrt(np.cos(theta))
             #Phase mask
-            PM=phase_mask(rho_pup,theta_pup,s.unit_phase_radius*pupil_radius, s.mode)
+            PM=phase_mask(rho_pup,theta_pup,s.unit_phase_radius*pupil_radius, s.mode.value)
             #Wavefront      
-            W=zernike(rho_pup/pupil_radius,theta_pup,s.abberation)
+            W=zernike(rho_pup/pupil_radius,theta_pup,*aberrations)
 
             #numerical calculation of field distribution in focal region
 
 
             term1=X2*np.cos(phi)+Y2*np.sin(phi)
             term2=np.multiply(np.sin(theta),term1)
-
             temp=np.exp(1j*wavenumber*(Z2*np.cos(theta)+term2))*deltatheta*deltaphi   # element by element
+            factored = np.sin(theta)*Ai*PM*B*np.exp(1j*W)*temp
 
-            Ex2=Ex2+np.sin(theta)*Ai*PM*B*P[0,0]*np.exp(1j*W)*temp
-            Ey2=Ey2+np.sin(theta)*Ai*PM*B*P[1,0]*np.exp(1j*W)*temp
-            Ez2=Ez2+np.sin(theta)*Ai*PM*B*P[2,0]*np.exp(1j*W)*temp
+
+            Ex2=Ex2+factored*P[0,0]
+            Ey2=Ey2+factored*P[1,0]
+            Ez2=Ez2+factored*P[2,0]
 
             
     (n1,n2)=rho_pupil.shape#effective phase mask
